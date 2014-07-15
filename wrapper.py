@@ -32,7 +32,7 @@ Example usage:
 
 import urllib2
 import json
-from prov.model import ProvBundle
+from prov.model import ProvDocument
 
 
 API_LOCATION = "https://provenance.ecs.soton.ac.uk/store/api/v0/"
@@ -78,7 +78,7 @@ class Api(object):
             headers['Authorization'] = self._authorization_header()
 
         if data:
-            request = urllib2.Request(self.api_location + path, json.dumps(data, cls=RequestDataSerializer), headers)
+            request = urllib2.Request(self.api_location + path, json.dumps(data), headers)
         else:
             request = urllib2.Request(self.api_location + path, None, headers)
 
@@ -113,13 +113,19 @@ class Api(object):
         """Returns the ID of the newly inserted document"""
 
         data = {
-                 'content': prov_document,
-                 'public': public,
-                 'rec_id': identifier
-               }
+            'content': prov_document.serialize(format='json'),
+            'public': public,
+            'rec_id': identifier
+        }
 
         response = self.request("documents/", data)
         return response['id']
+
+    def get_resource_uri(self, doc_id, format=None, flattened=False, view=None):
+        extension = '.' + format if format is not None else ''
+        view = "/views/%s" % view if view in ['data', 'process', 'responsibility'] else ""
+        url = "documents/%d%s%s%s" % (doc_id, "/flattened" if flattened else "", view, extension)
+        return self.api_location[:-7] + url
 
     def get_document(self, doc_id, format=None, flattened=False, view=None):
         """Returns a ProvBundle object of the document with the ID provided or raises ApiNotFoundError"""
@@ -130,13 +136,12 @@ class Api(object):
         response = self.request(url, raw=True)
 
         if format is None:
-            # Try to decode it as a ProvBundle
-            prov_document = ProvBundle()
-            prov_document._decode_JSON_container(json.loads(response))
-            return prov_document
+            # Try to decode it as a ProvDocument
+            result = ProvDocument.deserialize(content=response)
         else:
             # return the raw response
-            return response
+            result = response
+        return result
 
     def get_document_meta(self, doc_id):
         """Returns a JSON object containing information about the document or raises ApiNotFoundError"""
@@ -160,28 +165,3 @@ class Api(object):
 
         self.request("documents/" + str(doc_id) + "/", method="DELETE")
         return True
-
-
-# Allows JSON serialization of a prov document as an element of another JSON object
-class RequestDataSerializer(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, ProvBundle):
-            return o._encode_JSON_container()
-        else:
-            return json.JSONEncoder.default(self, o)
-
-
-if __name__ == '__main__':
-    api = Api()
-    print api.get_document(55)
-    print api.get_document(55, raw=True)
-    print api.get_document(55, format='provn')
-    print api.get_document_meta(55)
-
-    # Basic tests
-    # from provserver.testdata.examples import bundles1, w3c_publication_2
-    # new_id = api.submit_document(bundles1(), "identifier")
-    # print new_id
-    # print api.get_document(new_id)
-    # print api.add_bundle(new_id, w3c_publication_2(), "added")
-    # print api.delete_document(new_id)
